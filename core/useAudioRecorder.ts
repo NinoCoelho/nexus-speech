@@ -59,6 +59,7 @@ export function useAudioRecorder(
   const isSpeakingRef = useRef<boolean>(false);
   const isAmendingRef = useRef<boolean>(false);
   const isAutoStoppedRef = useRef<boolean>(false);
+  const playbackRef = useRef<HTMLAudioElement | null>(null);
 
   const rmsLevel = useCallback(() => {
     if (!analyserRef.current) return 0;
@@ -74,10 +75,15 @@ export function useAudioRecorder(
   }, []);
 
   const detect = useCallback(() => {
-    const level = rmsLevel();
     const now = performance.now();
 
+    const level = rmsLevel();
+
     if (level > silenceThreshold) {
+      if (playbackRef.current && !playbackRef.current.paused) {
+        playbackRef.current.pause();
+        playbackRef.current = null;
+      }
       isSpeakingRef.current = true;
       lastVoiceAtRef.current = now;
     } else if (isSpeakingRef.current && now - lastVoiceAtRef.current > silenceMs) {
@@ -144,13 +150,29 @@ export function useAudioRecorder(
 
         const result = await responder.transcribe(blob);
 
+        let responseAudioUrl: string | undefined;
+        if (result.responseAudio) {
+          const audioBlob = new Blob(
+            [Uint8Array.from(atob(result.responseAudio), (c) => c.charCodeAt(0))],
+            { type: "audio/wav" }
+          );
+          responseAudioUrl = URL.createObjectURL(audioBlob);
+        }
+
         setSegments((prev) =>
           prev.map((s) =>
             s.id === segmentId
-              ? { ...s, text: result.text, response: result.response, state: "done" }
+              ? { ...s, text: result.text, response: result.response, responseAudioUrl, state: "done" }
               : s
           )
         );
+
+        if (responseAudioUrl) {
+          const audio = new Audio(responseAudioUrl);
+          playbackRef.current = audio;
+          audio.play().catch(() => {});
+          audio.onended = () => { playbackRef.current = null; };
+        }
 
         if (wasAutoStopped) {
           recorder.start(chunkMs);

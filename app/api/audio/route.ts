@@ -1,13 +1,6 @@
-/**
- * Voice Chat sample — API endpoint.
- *
- * Uses the composed VoiceChatResponder (whisper.cpp + ollama).
- * This is a sample — in your own app, implement ServerResponder
- * with whatever transcription/LLM services you need.
- */
-
 import type { NextRequest } from "next/server";
 import { VoiceChatResponder } from "@/lib/responders";
+import { synthesize, wavFromRaw } from "@/lib/tts";
 
 export const dynamic = "force-dynamic";
 
@@ -42,11 +35,23 @@ export async function POST(req: NextRequest) {
       messages
     );
 
+    let responseAudio: string | undefined;
+    if (result.response && result.response.trim()) {
+      try {
+        const rawPcm = await synthesize(result.response);
+        const wav = wavFromRaw(rawPcm);
+        responseAudio = wav.toString("base64");
+      } catch (e) {
+        console.error("TTS failed:", e);
+      }
+    }
+
     return new Response(
       JSON.stringify({
         segmentId: id,
         text: result.text || "",
         response: result.response || "",
+        responseAudio: responseAudio || "",
         blank: result.blank || false,
       }),
       { status: 200, headers: { "Content-Type": "application/json" } }

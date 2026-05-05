@@ -25,6 +25,8 @@ export type TranscriptSegment = {
   text: string;
   /** LLM response, if the responder provides one */
   response?: string;
+  /** Audio URL for TTS response (set by hook from base64) */
+  responseAudioUrl?: string;
   /** Current state of this segment */
   state: "transcribing" | "done" | "amended";
 };
@@ -41,6 +43,8 @@ export type TranscriptionResult = {
   text: string;
   /** Optional LLM-generated response */
   response?: string;
+  /** Optional base64-encoded WAV audio of the response (TTS) */
+  responseAudio?: string;
   /** If true, the segment was blank/non-speech and should not be displayed */
   blank?: boolean;
 };
@@ -89,11 +93,32 @@ export type Responder = {
  */
 export type RecorderOptions = {
   /**
-   * RMS amplitude threshold to consider as "speech".
+   * Fixed speech threshold (used when `adaptiveNoiseFloor` is false).
    * Range: 0.0 (silence) to 1.0 (max).
    * @default 0.02
    */
   silenceThreshold?: number;
+  /**
+   * Enable adaptive noise floor detection.
+   * When true, the hook continuously estimates ambient noise and only
+   * triggers speech when audio exceeds the noise floor by `speechMargin`.
+   * Ignores brief spikes shorter than `speechHoldMs`.
+   * @default true
+   */
+  adaptiveNoiseFloor?: boolean;
+  /**
+   * How much the signal must exceed the noise floor to count as speech.
+   * Only used when `adaptiveNoiseFloor` is true.
+   * @default 0.015
+   */
+  speechMargin?: number;
+  /**
+   * Minimum duration (ms) the signal must stay above the noise floor
+   * before confirming speech. Filters out door slams, footsteps, etc.
+   * Only used when `adaptiveNoiseFloor` is true.
+   * @default 300
+   */
+  speechHoldMs?: number;
   /**
    * Milliseconds of silence before a chunk is finalized.
    * @default 2000

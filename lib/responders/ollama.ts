@@ -27,16 +27,20 @@ export type OllamaChatOptions = {
 };
 
 export class OllamaChat {
-  private endpoint: string;
-  private model: string;
-  private systemPrompt: string;
+  private _endpoint: string;
+  private _model: string;
+  private _systemPrompt: string;
 
   constructor(options: OllamaChatOptions = {}) {
-    this.endpoint = options.endpoint || "http://localhost:11434";
-    this.model = options.model || "gemma3:1b";
-    this.systemPrompt = options.systemPrompt ||
-      "You are a helpful voice assistant. Keep responses brief and conversational. Respond in 1-3 sentences.";
+    this._endpoint = options.endpoint || "http://localhost:11434";
+    this._model = options.model || "gemma3:1b";
+    this._systemPrompt = options.systemPrompt ||
+      "You are a helpful voice assistant. Keep responses brief and conversational. Respond in 1-3 sentences. Never use brackets or stage directions like [silence], [laughs], etc. Just speak naturally.";
   }
+
+  getEndpoint() { return this._endpoint; }
+  getModel() { return this._model; }
+  getSystemPrompt() { return this._systemPrompt; }
 
   /**
    * Send a chat message and get a response.
@@ -45,12 +49,12 @@ export class OllamaChat {
    * @returns The assistant's response text
    */
   async chat(messages: { role: string; content: string }[]): Promise<string> {
-    const resp = await fetch(`${this.endpoint}/api/chat`, {
+    const resp = await fetch(`${this._endpoint}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: this.model,
-        messages: [{ role: "system", content: this.systemPrompt }, ...messages],
+        model: this._model,
+        messages: [{ role: "system", content: this._systemPrompt }, ...messages],
         stream: false,
       }),
     });

@@ -1,21 +1,10 @@
 "use client";
 
-/**
- * Voice Chat sample — chat UI component.
- *
- * This is a sample UI that demonstrates how to use the core
- * `useAudioRecorder` hook in a chat-style interface.
- *
- * It connects to the `/api/audio` endpoint which chains
- * whisper.cpp transcription → ollama LLM response.
- */
-
 import { useAudioRecorder, type Responder, type TranscriptionResult } from "@/core";
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useState } from "react";
 
 function createLiveResponder(
-  getMessages: () => { role: string; content: string }[],
-  onBlank: (segmentId: string) => void
+  getMessages: () => { role: string; content: string }[]
 ): Responder {
   return {
     async transcribe(blob: Blob): Promise<TranscriptionResult> {
@@ -35,11 +24,14 @@ function createLiveResponder(
       const data = await resp.json();
 
       if (data.blank) {
-        onBlank(data.segmentId);
         return { text: "", blank: true };
       }
 
-      return { text: data.text || "", response: data.response || "" };
+      return {
+        text: data.text || "",
+        response: data.response || "",
+        responseAudio: data.responseAudio || undefined,
+      };
     },
   };
 }
@@ -49,11 +41,7 @@ export function VoiceChat() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const removedRef = useRef<Set<string>>(new Set());
 
-  const handleBlank = useCallback((segmentId: string) => {
-    removedRef.current.add(segmentId);
-  }, []);
-
-  const responder = createLiveResponder(() => chatHistoryRef.current, handleBlank);
+  const responder = createLiveResponder(() => chatHistoryRef.current);
 
   const { start, pause, release, resume, segments, isRecording, isStarting } =
     useAudioRecorder(responder, {
