@@ -3,99 +3,80 @@
 </p>
 
 <p align="center">
-  Plug-and-play voice recording with silence-based chunking, local transcription, and LLM chat. Part of the <a href="https://github.com/NinoCoelho/nexus">Nexus</a> platform, built on <a href="https://github.com/NinoCoelho/loom">Loom</a> patterns.
+  A plug-and-play voice framework — headless React recorder hook, pluggable server responders, and a sample voice chat app. Part of the <a href="https://github.com/NinoCoelho/nexus">Nexus</a> platform.
 </p>
 
 ---
 
-## What it does
-
-- **Records audio in the browser** with silence detection — speaks, pauses, and each utterance becomes a segment
-- **Transcribes locally** via whisper.cpp (no cloud APIs)
-- **Responds via LLM** through Ollama (gemma3:1b by default)
-- **Pluggable responder interface** — swap whisper for OpenAI, swap Ollama for any LLM, or write your own
-
 ## Architecture
 
 ```
-Browser (React)                     Server (Next.js API)
-┌──────────────────┐                ┌─────────────────────┐
-│ useAudioRecorder │──blob──▶ POST /api/audio
-│  silence detect  │                │  1. ffmpeg webm→wav  │
-│  chunk on pause  │                │  2. whisper.cpp      │
-│                  │◀─JSON──        │  3. ollama chat      │
-│  chat UI         │                │  return text+reply   │
-└──────────────────┘                └─────────────────────┘
+nexus-speech/
+├── core/                  Reusable client framework (headless hook + types)
+│   ├── types.ts           TranscriptSegment, Responder, RecorderOptions, etc.
+│   ├── useAudioRecorder.ts  Silence-based recording hook
+│   └── index.ts           Public API
+│
+├── server/                Reusable server framework (responder interface + route helper)
+│   ├── types.ts           AudioSegment, TranscriptResult, ServerResponder
+│   ├── route.ts           createAudioRoute() — one-liner Next.js endpoint
+│   └── index.ts           Public API
+│
+├── lib/responders/        Concrete responder implementations
+│   ├── whisper.ts         whisper.cpp server (ffmpeg webm→wav → API)
+│   ├── ollama.ts          Ollama LLM chat client
+│   ├── openai.ts          OpenAI Whisper API
+│   ├── voice-chat.ts      Composed: whisper + ollama
+│   └── mock.ts            Placeholder for dev/testing
+│
+├── components/            Sample UI components
+│   └── AudioRecorder.tsx  VoiceChat — chat-style bubble UI
+│
+└── app/                   Sample Next.js app (voice chat demo)
+    └── api/audio/route.ts POST endpoint using VoiceChatResponder
 ```
 
-## Quick start
+The **framework** is `core/` + `server/` — copy these into any Next.js project.
 
-**Prerequisites**: Node.js 18+, [ffmpeg](https://ffmpeg.org/), [whisper-cpp](https://github.com/ggml-org/whisper.cpp), [Ollama](https://ollama.ai)
+The **sample app** (`app/`, `components/`, `lib/responders/`) demonstrates a complete voice chat using local whisper.cpp + ollama.
 
-```bash
-# 1. Install
-git clone https://github.com/NinoCoelho/nexus-speech.git
-cd nexus-speech && npm install
+---
 
-# 2. Download whisper model
-mkdir -p ~/Library/Caches/whisper-cpp
-curl -L -o ~/Library/Caches/whisper-cpp/ggml-medium.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin
+## Framework: `core/` (client)
 
-# 3. Start whisper server
-whisper-server -m ~/Library/Caches/whisper-cpp/ggml-medium.bin --port 8082
+### `useAudioRecorder(responder, options?)`
 
-# 4. Start Ollama (if not running)
-ollama serve
-ollama pull gemma3:1b
+Headless React hook that handles the full audio recording lifecycle:
 
-# 5. Start the app
-npm run dev
-```
-
-Open http://localhost:3000, click Start, and talk.
-
-## Project structure
-
-```
-app/
-  api/audio/route.ts    POST endpoint: receive audio → transcribe → respond
-  page.tsx              Demo page
-  layout.tsx            Root layout
-components/
-  AudioRecorder.tsx     Chat UI + live responder
-hooks/
-  useAudioRecorder.ts   Headless recorder hook (silence detection, chunking)
-lib/responders/
-  types.ts              Responder interface
-  whisper.ts            whisper.cpp server (ffmpeg webm→wav → API call)
-  ollama.ts             Ollama chat client
-  openai.ts             OpenAI Whisper (cloud fallback)
-  mock.ts               In-memory mock for dev
-```
-
-## Configuration
-
-| Variable | Default | Description |
-|---|---|---|
-| `OLLAMA_ENDPOINT` | `http://localhost:11434` | Ollama API URL |
-| `OLLAMA_MODEL` | `gemma3:1b` | Chat model |
-| Whisper model | `ggml-medium.bin` | Set in whisper-server CLI |
-
-## The headless hook
-
-Use `useAudioRecorder` in any React UI:
+1. Requests microphone access
+2. Creates a `MediaRecorder` (WebM/Opus) + `AnalyserNode` for VAD
+3. Runs a `requestAnimationFrame` loop to detect silence
+4. On silence (configurable threshold + duration), finalizes a chunk
+5. Calls `responder.transcribe(blob)` with the audio
+6. Auto-restarts recording after each silence-triggered chunk
 
 ```tsx
-import { useAudioRecorder } from "@/hooks/useAudioRecorder";
+import { useAudioRecorder, type Responder } from "@/core";
 
-function MyChat() {
-  const { start, stop, segments, isRecording } = useAudioRecorder(myResponder);
+const responder: Responder = {
+  async transcribe(blob) {
+    const resp = await fetch("/api/audio", { method: "POST", body: blob });
+    return resp.json(); // { text, response?, blank? }
+  },
+};
+
+function MyVoiceUI() {
+  const { start, pause, resume, release, segments, isRecording } =
+    useAudioRecorder(responder, {
+      silenceThreshold: 0.02, // RMS amplitude for "speech"
+      silenceMs: 2000,        // ms of silence before chunk
+      chunkMs: 250,           // ms between MediaRecorder data events
+    });
 
   return (
     <div>
-      <button onClick={isRecording ? stop : start}>
-        {isRecording ? "Stop" : "Mic"}
+      <button onClick={isRecording ? pause : start}>
+        {isRecording ? "Pause" : "Record"}
       </button>
       {segments.map((s) => (
         <div key={s.id}>
@@ -108,17 +89,194 @@ function MyChat() {
 }
 ```
 
-## Responder interface
+### Return type
 
-Implement this to plug in any transcription or agent backend:
+| Field | Type | Description |
+|---|---|---|
+| `start()` | `() => Promise<void>` | Request mic + begin recording |
+| `stop()` | `() => void` | Stop and release everything |
+| `pause()` | `() => void` | Stop recording, keep mic alive |
+| `resume()` | `() => void` | Resume from pause |
+| `release()` | `() => void` | Release all resources |
+| `amend(id, text)` | `(string, string) => void` | Edit a segment's text |
+| `segments` | `TranscriptSegment[]` | All recorded segments |
+| `isRecording` | `boolean` | Actively recording |
+| `isStarting` | `boolean` | Waiting for mic permission |
+
+### `TranscriptSegment`
 
 ```ts
-interface Responder {
-  transcribe(segment: AudioSegment): Promise<Transcript>;
+{
+  id: string;           // unique ID
+  audioUrl?: string;    // blob URL (browser only)
+  text: string;         // transcribed text
+  response?: string;    // LLM response (if responder provides one)
+  state: "transcribing" | "done" | "amended";
 }
 ```
 
-Included responders: `WhisperResponder`, `OllamaLLM`, `OpenAIResponder`, `MockResponder`.
+### `Responder` (client-side contract)
+
+```ts
+interface Responder {
+  transcribe(blob: Blob): Promise<TranscriptionResult>;
+}
+
+interface TranscriptionResult {
+  text: string;
+  response?: string;
+  blank?: boolean;
+}
+```
+
+---
+
+## Framework: `server/` (backend)
+
+### `ServerResponder` interface
+
+Implement this to process audio on the server:
+
+```ts
+interface ServerResponder {
+  process(segment: AudioSegment): Promise<TranscriptResult>;
+}
+```
+
+### `createAudioRoute({ responder })`
+
+One-liner to create a Next.js App Router POST handler:
+
+```ts
+// app/api/audio/route.ts
+import { createAudioRoute } from "@/server";
+import { myResponder } from "@/lib/my-responder";
+
+export const POST = createAudioRoute({ responder: myResponder });
+```
+
+The route:
+1. Parses `multipart/form-data` (expects `"audio"` field)
+2. Optionally reads `"messages"` field for chat history
+3. Calls `responder.process(segment)`
+4. Returns `{ text, response, blank }`
+
+### `AudioSegment` (server-side)
+
+```ts
+{
+  id: string;        // unique ID
+  data: Buffer;      // raw audio bytes
+  mimeType: string;  // e.g. "audio/webm;codecs=opus"
+}
+```
+
+---
+
+## Built-in responders (`lib/responders/`)
+
+| Class | Purpose | Requires |
+|---|---|---|
+| `WhisperResponder` | Transcription via whisper.cpp server | `whisper-server` + `ffmpeg` |
+| `OllamaChat` | LLM chat responses via Ollama | `ollama` running |
+| `VoiceChatResponder` | Chains whisper → ollama (sample) | Both of the above |
+| `OpenAIResponder` | Transcription via OpenAI API | `OPENAI_API_KEY` |
+| `MockResponder` | Placeholder for dev/testing | Nothing |
+
+### Composing a responder
+
+```ts
+import { VoiceChatResponder } from "@/lib/responders";
+
+const responder = new VoiceChatResponder({
+  whisper: { endpoint: "http://localhost:8082" },
+  ollama: { endpoint: "http://localhost:11434", model: "gemma3:1b" },
+});
+```
+
+Or build your own by implementing `ServerResponder`:
+
+```ts
+import type { ServerResponder, AudioSegment, TranscriptResult } from "@/server";
+
+class MyResponder implements ServerResponder {
+  async process(segment: AudioSegment): Promise<TranscriptResult> {
+    const text = await myTranscriptionService(segment.data);
+    const response = await myLLM(text);
+    return { text, response };
+  }
+}
+```
+
+---
+
+## Sample app: voice chat
+
+The included Next.js app demonstrates a voice chat using local services.
+
+### Prerequisites
+
+- Node.js 18+
+- [ffmpeg](https://ffmpeg.org/)
+- [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`brew install whisper-cpp`)
+- [Ollama](https://ollama.ai) with a model pulled (e.g. `gemma3:1b`)
+
+### Run
+
+```bash
+# 1. Install
+git clone https://github.com/NinoCoelho/nexus-speech.git
+cd nexus-speech && npm install
+
+# 2. Download whisper model (first time only)
+mkdir -p ~/Library/Caches/whisper-cpp
+curl -L -o ~/Library/Caches/whisper-cpp/ggml-medium.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin
+
+# 3. Start whisper server
+whisper-server -m ~/Library/Caches/whisper-cpp/ggml-medium.bin --port 8082 &
+
+# 4. Start Ollama (if not running)
+ollama serve &
+ollama pull gemma3:1b
+
+# 5. Start the app
+npm run dev
+```
+
+Open http://localhost:3000 and talk.
+
+### Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `WHISPER_ENDPOINT` | `http://localhost:8082` | Whisper server URL |
+| `OLLAMA_ENDPOINT` | `http://localhost:11434` | Ollama API URL |
+| `OLLAMA_MODEL` | `gemma3:1b` | Chat model |
+
+---
+
+## Using the framework in your own project
+
+Copy `core/` and `server/` into your Next.js project, then:
+
+```tsx
+// 1. Implement a client-side responder
+const myResponder: Responder = {
+  async transcribe(blob) {
+    const resp = await fetch("/api/my-endpoint", { method: "POST", body: blob });
+    return resp.json();
+  },
+};
+
+// 2. Use the hook
+const { start, stop, segments } = useAudioRecorder(myResponder);
+
+// 3. On the server, create an endpoint
+export const POST = createAudioRoute({ responder: myServerResponder });
+```
+
+---
 
 ## Relationship to Nexus and Loom
 

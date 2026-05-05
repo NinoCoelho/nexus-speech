@@ -1,13 +1,27 @@
-import type { AudioSegment, Responder, Transcript } from "./types";
+/**
+ * @module nexus-speech/responders/openai
+ *
+ * OpenAI Whisper transcription responder.
+ *
+ * Uses the OpenAI `/v1/audio/transcriptions` endpoint.
+ * Requires `OPENAI_API_KEY` environment variable or constructor argument.
+ */
 
-export class OpenAIResponder implements Responder {
+import type { AudioSegment, TranscriptResult } from "@/server/types";
+
+export type OpenAIResponderOptions = {
+  /** API key (defaults to `process.env.OPENAI_API_KEY`) */
+  apiKey?: string;
+};
+
+export class OpenAIResponder {
   private apiKey: string;
 
-  constructor(apiKey?: string) {
-    this.apiKey = apiKey || process.env.OPENAI_API_KEY || "";
+  constructor(options: OpenAIResponderOptions = {}) {
+    this.apiKey = options.apiKey || process.env.OPENAI_API_KEY || "";
   }
 
-  async transcribe(segment: AudioSegment): Promise<Transcript> {
+  async process(segment: AudioSegment): Promise<TranscriptResult> {
     const formData = new FormData();
     const uint8Array = new Uint8Array(segment.data);
     const file = new Blob([uint8Array], { type: segment.mimeType });
@@ -16,9 +30,7 @@ export class OpenAIResponder implements Responder {
 
     const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-      },
+      headers: { Authorization: `Bearer ${this.apiKey}` },
       body: formData,
     });
 
@@ -27,10 +39,7 @@ export class OpenAIResponder implements Responder {
     }
 
     const json = await resp.json();
-    return {
-      id: segment.id,
-      text: json.text || "",
-      confidence: 1,
-    };
+    const text = json.text || "";
+    return { text };
   }
 }

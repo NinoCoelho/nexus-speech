@@ -1,6 +1,16 @@
 "use client";
 
-import { useAudioRecorder, type Responder, type TranscriptionResult } from "../hooks/useAudioRecorder";
+/**
+ * Voice Chat sample — chat UI component.
+ *
+ * This is a sample UI that demonstrates how to use the core
+ * `useAudioRecorder` hook in a chat-style interface.
+ *
+ * It connects to the `/api/audio` endpoint which chains
+ * whisper.cpp transcription → ollama LLM response.
+ */
+
+import { useAudioRecorder, type Responder, type TranscriptionResult } from "@/core";
 import { useRef, useCallback } from "react";
 
 function createLiveResponder(
@@ -26,7 +36,7 @@ function createLiveResponder(
 
       if (data.blank) {
         onBlank(data.segmentId);
-        return { text: "", response: "" };
+        return { text: "", blank: true };
       }
 
       return { text: data.text || "", response: data.response || "" };
@@ -34,7 +44,7 @@ function createLiveResponder(
   };
 }
 
-export function AudioRecorder() {
+export function VoiceChat() {
   const chatHistoryRef = useRef<{ role: string; content: string; _id?: string }[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const removedRef = useRef<Set<string>>(new Set());
@@ -45,20 +55,33 @@ export function AudioRecorder() {
 
   const responder = createLiveResponder(() => chatHistoryRef.current, handleBlank);
 
-  const { start, pause, release, resume, amend, segments, isRecording, isStarting } =
+  const { start, pause, release, resume, segments, isRecording, isStarting } =
     useAudioRecorder(responder, {
       silenceThreshold: 0.02,
       silenceMs: 2000,
       chunkMs: 250,
     });
 
-  const visibleSegments = segments.filter((s) => !removedRef.current.has(s.id) && s.text);
+  const visibleSegments = segments.filter(
+    (s) => !removedRef.current.has(s.id) && s.text
+  );
   const lastSegment = segments[segments.length - 1];
 
-  if (lastSegment?.state === "done" && lastSegment.text && !chatHistoryRef.current.find((m) => m._id === lastSegment.id)) {
-    chatHistoryRef.current.push({ role: "user", content: lastSegment.text, _id: lastSegment.id });
+  if (
+    lastSegment?.state === "done" &&
+    lastSegment.text &&
+    !chatHistoryRef.current.find((m) => m._id === lastSegment.id)
+  ) {
+    chatHistoryRef.current.push({
+      role: "user",
+      content: lastSegment.text,
+      _id: lastSegment.id,
+    });
     if (lastSegment.response) {
-      chatHistoryRef.current.push({ role: "assistant", content: lastSegment.response });
+      chatHistoryRef.current.push({
+        role: "assistant",
+        content: lastSegment.response,
+      });
     }
     setTimeout(() => {
       if (scrollRef.current) {
@@ -68,7 +91,16 @@ export function AudioRecorder() {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "70vh", border: "1px solid #ccc", borderRadius: "8px", overflow: "hidden" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "70vh",
+        border: "1px solid #ccc",
+        borderRadius: "8px",
+        overflow: "hidden",
+      }}
+    >
       <div
         ref={scrollRef}
         style={{
@@ -83,8 +115,12 @@ export function AudioRecorder() {
       >
         {visibleSegments.length === 0 && segments.length === 0 && (
           <div style={{ textAlign: "center", color: "#888", marginTop: "40%" }}>
-            <p style={{ fontSize: "16px", marginBottom: "4px" }}>Press Start to begin</p>
-            <p style={{ fontSize: "13px" }}>Speak naturally &mdash; silence triggers a new segment</p>
+            <p style={{ fontSize: "16px", marginBottom: "4px" }}>
+              Press Start to begin
+            </p>
+            <p style={{ fontSize: "13px" }}>
+              Speak naturally &mdash; silence triggers a new segment
+            </p>
           </div>
         )}
 
@@ -108,7 +144,13 @@ export function AudioRecorder() {
               </div>
             )}
             {seg.response && (
-              <div style={{ display: "flex", justifyContent: "flex-start", marginTop: "4px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-start",
+                  marginTop: "4px",
+                }}
+              >
                 <div
                   style={{
                     maxWidth: "75%",

@@ -1,4 +1,4 @@
-import { AudioRecorder } from "@/components/AudioRecorder";
+import { VoiceChat } from "@/components/AudioRecorder";
 
 export default function Home() {
   return (
@@ -7,10 +7,10 @@ export default function Home() {
         Nexus Speech
       </h1>
       <p style={{ color: "#666", marginBottom: "16px", fontSize: "14px" }}>
-        Voice chat with local whisper.cpp + ollama
+        Voice chat sample — whisper.cpp + ollama
       </p>
 
-      <AudioRecorder />
+      <VoiceChat />
     </main>
   );
 }
